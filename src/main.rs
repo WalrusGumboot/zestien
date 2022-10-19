@@ -1,14 +1,18 @@
 // Zestien, a hex editor by Simeon Duwel.
 
+const BYTE_WIDTH: usize = 16;
+
 use std::{env, fs::File, io::{BufReader, Read}};
 
 extern crate cursive;
+use cursive::views::{TextView, NamedView, PaddedView, Panel};
+use cursive::{Cursive, CursiveExt};
 
 fn nybble_to_hex(n: u8) -> char {
     if n < 10 {
         return (n + 0x30) as char;
     } else if n < 16 {
-        return (n + 0x60) as char;
+        return (n - 9 + 0x60) as char;
     }
 
     unreachable!("Nybbles are always 0x0F or less, received {}", n);
@@ -33,11 +37,9 @@ impl From<u8> for CharRep {
 
 impl std::fmt::Display for CharRep {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}{} ({})", self.upper, self.lower, self.ascii)
+        write!(f, "{}{}", self.upper, self.lower)
     }
 }
-
-
 
 fn main() {
     let maybe_path = &env::args().collect::<Vec<String>>()[1];
@@ -51,6 +53,26 @@ fn main() {
                           .map(|c| CharRep::from(*c))
                           .collect();
 
+    let mut siv = Cursive::new();
+    siv.add_layer(
+        Panel::new(PaddedView::lrtb(4, 4, 2, 2, NamedView::new("zestien", TextView::new(
+            // data.into_iter()
+            //     .enumerate()
+            //     .map(|(idx, c)| format!("{}{}", c, if (idx + 1) % BYTE_WIDTH == 0 { '\n' } else { ' ' }))
+            //     .collect::<Vec<String>>()
+            //     .join("")
 
-    println!("{}", data[0]);
+            data.chunks(BYTE_WIDTH)
+                .enumerate()
+                .map(|(row_idx, row)| format!(
+                    "{}: {} | {}",
+                    format!("{:08x}", row_idx * BYTE_WIDTH),
+                    row.iter().map(|c| format!("{}", c)).collect::<Vec<_>>().join(" "),
+                    row.iter().map(|c| String::from(c.ascii)).collect::<Vec<_>>().join(" ")))
+                .collect::<Vec<String>>()
+                .join("\n")
+        ))))
+    );
+    siv.add_global_callback('q', |s| s.quit());
+    siv.run();
 }
