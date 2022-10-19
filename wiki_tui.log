@@ -1,0 +1,40 @@
+2022-10-19T18:58:46.293463670+02:00 INFO wiki_tui::logging - successfully initialized the logging system
+2022-10-19T18:58:55.509414289+02:00 INFO wiki_tui::ui::search - on_search was called
+2022-10-19T18:58:55.509479421+02:00 INFO wiki_tui::ui::search - searching for 'alhamdulillah'
+2022-10-19T18:58:55.509495898+02:00 INFO wiki_tui::wiki::search::builder - search was called
+2022-10-19T18:58:55.914116232+02:00 INFO wiki_tui::wiki::search::builder - search finished successfully
+2022-10-19T18:58:55.914180766+02:00 INFO wiki_tui::ui::search - displaying '10' out of '69' search results
+2022-10-19T18:58:55.914226181+02:00 INFO wiki_tui::ui::search - on_search finished successfully
+2022-10-19T18:58:55.915246238+02:00 INFO wiki_tui::ui::search - on_result_select was called with the item 'Alhamdulillah', page id: '300148'
+2022-10-19T18:58:55.915283375+02:00 INFO wiki_tui::ui::search - on_result_select finished successfully
+2022-10-19T18:58:56.665102364+02:00 INFO wiki_tui::ui::article - on_article_submit was called
+2022-10-19T18:58:56.665168948+02:00 INFO wiki_tui::ui::article - fetching the article 'Alhamdulillah' with the id '300148'
+2022-10-19T18:58:56.665185562+02:00 INFO wiki_tui::wiki::article::builder - beginning the build process
+2022-10-19T18:58:56.665200449+02:00 INFO wiki_tui::wiki::article::builder - making the request to 'https://en.wikipedia.org/?curid=300148'
+2022-10-19T18:58:57.142879472+02:00 INFO wiki_tui::wiki::article::builder - parsing the article
+2022-10-19T18:58:57.216496433+02:00 WARN html5ever::tree_builder - foster parenting not implemented
+2022-10-19T18:58:57.216633491+02:00 WARN html5ever::tree_builder - foster parenting not implemented
+2022-10-19T18:58:57.228889836+02:00 INFO wiki_tui::ui::article - displaying the article 'Alhamdulillah'
+2022-10-19T18:58:57.228973423+02:00 INFO wiki_tui::ui::article - displaying the table of contents
+2022-10-19T18:58:57.229016484+02:00 INFO wiki_tui::ui::article - on_article_submit finished successfully
+2022-10-19T18:59:19.185171793+02:00 INFO wiki_tui::ui::article::view - detected a mouse event over the link '38'
+2022-10-19T18:59:19.185218160+02:00 INFO wiki_tui::ui::article::view - target article is '/wiki/Exegesis'
+2022-10-19T18:59:19.185228895+02:00 INFO wiki_tui::ui::article::links - replacing the current link '0', with '9'
+2022-10-19T18:59:19.185238942+02:00 INFO wiki_tui::ui::article - on_link_submit was called with the target link '/wiki/Exegesis'
+2022-10-19T18:59:19.185247038+02:00 INFO wiki_tui::ui::article - requesting confirmation from the user
+2022-10-19T18:59:19.185259015+02:00 INFO wiki_tui::ui::article - on_link_submit finished successfully
+2022-10-19T18:59:20.622777301+02:00 INFO wiki_tui::ui::article - on_link_submit - user said yes :) continuing...
+2022-10-19T18:59:20.622840648+02:00 INFO wiki_tui::wiki::article::builder - beginning the build process
+2022-10-19T18:59:20.622857433+02:00 INFO wiki_tui::wiki::article::builder - making the request to 'https://en.wikipedia.org//wiki/Exegesis'
+2022-10-19T18:59:21.107421479+02:00 INFO wiki_tui::wiki::article::builder - parsing the article
+2022-10-19T18:59:21.217052562+02:00 INFO wiki_tui::ui::article - displaying the table of contents
+2022-10-19T18:59:31.949402541+02:00 INFO wiki_tui::ui::article::view - opening the link
+2022-10-19T18:59:31.949508642+02:00 INFO wiki_tui::ui::article::view - target article is '/wiki/Grammar'
+2022-10-19T18:59:31.949525324+02:00 INFO wiki_tui::ui::article - on_link_submit was called with the target link '/wiki/Grammar'
+2022-10-19T18:59:31.949536250+02:00 INFO wiki_tui::ui::article - requesting confirmation from the user
+2022-10-19T18:59:31.949552090+02:00 INFO wiki_tui::ui::article - on_link_submit finished successfully
+2022-10-19T18:59:32.804795562+02:00 INFO wiki_tui::ui::article - on_link_submit - user said yes :) continuing...
+2022-10-19T18:59:32.804872789+02:00 INFO wiki_tui::wiki::article::builder - beginning the build process
+2022-10-19T18:59:32.804888610+02:00 INFO wiki_tui::wiki::article::builder - making the request to 'https://en.wikipedia.org//wiki/Grammar'
+2022-10-19T18:59:32.935206313+02:00 INFO wiki_tui::wiki::article::builder - parsing the article
+2022-10-19T18:59:33.032330389+02:00 INFO wiki_tui::ui::article - displaying the table of contents
