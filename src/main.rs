@@ -23,6 +23,28 @@ fn nybble_to_hex(n: u8) -> char {
     unreachable!("Nybbles are always 0x0F or less, received {}", n);
 }
 
+fn hex_to_nybble(h: char) -> u8 {
+    match h {
+        '0' => 0,
+        '1' => 1,
+        '2' => 2,
+        '3' => 3,
+        '4' => 4,
+        '5' => 5,
+        '6' => 6,
+        '7' => 7,
+        '8' => 8,
+        '9' => 9,
+        'a' => 10,
+        'b' => 11,
+        'c' => 12,
+        'd' => 13,
+        'e' => 14,
+        'f' => 15,
+        _ => panic!("Value is not a nybble.")
+    }
+}
+
 #[derive(Clone, Copy)]
 struct CharRep {
     lower: Option<char>,
@@ -37,6 +59,12 @@ impl From<u8> for CharRep {
             upper: Some(nybble_to_hex(source >> 4)),
             ascii: if (source as char).is_ascii_graphic() { source as char } else { '.' } //TODO: add nerd font support for newline char
         }
+    }
+}
+
+impl Into<u8> for CharRep {
+    fn into(self) -> u8 {
+        hex_to_nybble(self.lower.unwrap()) | hex_to_nybble(self.upper.unwrap()) << 4
     }
 }
 
@@ -79,6 +107,7 @@ impl ZestienView {
 
         // take into account scrolling
         if self.cursor >= (BYTE_WIDTH * (self.scroll_row_offset + self.visible_rows)) { self.scroll_row_offset += 1; }
+        if self.cursor < (BYTE_WIDTH * self.scroll_row_offset) { self.scroll_row_offset -= 1; }
     }
     fn nybble_move(&mut self, forward: bool)    {
         if  forward &&  self.on_lower_nybble { self.move_cursor( 1) }
@@ -156,15 +185,23 @@ impl ZestienView {
 
         return all_rows;
     }
+
+    fn edit_data(&mut self, val: u8) {
+        if self.on_lower_nybble { self.data[self.cursor].lower = Some(nybble_to_hex(val)); }
+        else                    { self.data[self.cursor].upper = Some(nybble_to_hex(val)); }
+
+        //self.data[self.cursor] &= if self.on_lower_nybble { 0xf0 } else { 0x0f };
+        //self.data[self.cursor] |= val << if self.on_lower_nybble { 0 } else { 4 };
+    }
 }
 
 impl View for ZestienView {
     fn draw(&self, printer: &cursive::Printer) {
         let gen = self.generate_text(self.visible_rows);
-        printer.print((0, 0), &format!("cursor: {} (lower: {})", self.cursor, if self.on_lower_nybble {"true"} else {"false"}));
         let window = printer.windowed(
-            cursive::Rect::from_corners((self.padding, self.padding),
-                                        (self.padding + ZestienView::ROW_LENGTH, self.padding + self.visible_rows)
+            cursive::Rect::from_corners(
+                (self.padding, self.padding),
+                (self.padding + ZestienView::ROW_LENGTH, self.padding + self.visible_rows)
             )
         );
 
@@ -195,6 +232,14 @@ impl View for ZestienView {
                 self.move_cursor(16);
                 EventResult::Ignored
             }
+
+            // HEX EDITING
+            Event::Char('a') => {self.edit_data(10); EventResult::Ignored}
+            Event::Char('b') => {self.edit_data(11); EventResult::Ignored}
+            Event::Char('c') => {self.edit_data(12); EventResult::Ignored}
+            Event::Char('d') => {self.edit_data(13); EventResult::Ignored}
+            Event::Char('e') => {self.edit_data(14); EventResult::Ignored}
+            Event::Char('f') => {self.edit_data(15); EventResult::Ignored}
 
             // FILE HANDLING
             Event::CtrlChar('O') => unimplemented!("Opening files"),
