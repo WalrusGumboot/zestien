@@ -1,6 +1,7 @@
 // Zestien, a hex editor by Simeon Duwel.
 
 const BYTE_WIDTH: usize = 16;
+const PADDING: usize = 2;
 
 use std::{env, fs::File, io::{BufReader, Read}};
 
@@ -23,84 +24,53 @@ fn nybble_to_hex(n: u8) -> char {
     unreachable!("Nybbles are always 0x0F or less, received {}", n);
 }
 
-fn hex_to_nybble(h: char) -> u8 {
-    match h {
-        '0' => 0,
-        '1' => 1,
-        '2' => 2,
-        '3' => 3,
-        '4' => 4,
-        '5' => 5,
-        '6' => 6,
-        '7' => 7,
-        '8' => 8,
-        '9' => 9,
-        'a' => 10,
-        'b' => 11,
-        'c' => 12,
-        'd' => 13,
-        'e' => 14,
-        'f' => 15,
-        _ => panic!("Value is not a nybble.")
-    }
+struct CharPrintingInfo {
+    lower: char,
+    upper: char,
+    text: char
 }
 
-#[derive(Clone, Copy)]
-struct CharRep {
-    lower: Option<char>,
-    upper: Option<char>,
-    ascii: char,
-}
-
-impl From<u8> for CharRep {
-    fn from(source: u8) -> Self {
-        Self {
-            lower: Some(nybble_to_hex(source & 0x0f)),
-            upper: Some(nybble_to_hex(source >> 4)),
-            ascii: if (source as char).is_ascii_graphic() { source as char } else { '.' } //TODO: add nerd font support for newline char
-        }
-    }
-}
-
-impl Into<u8> for CharRep {
-    fn into(self) -> u8 {
-        hex_to_nybble(self.lower.unwrap()) | hex_to_nybble(self.upper.unwrap()) << 4
-    }
-}
-
-impl From<Option<u8>> for CharRep {
-    fn from(source: Option<u8>) -> Self {
-        if let Some(c) = source {
-            CharRep::from(c)
+impl From<Option<u8>> for CharPrintingInfo {
+    fn from(val: Option<u8>) -> Self {
+        if let Some(v) = val {
+            CharPrintingInfo {
+                lower: nybble_to_hex(v & 0xf),
+                upper: nybble_to_hex(v >> 4),
+                text:  if v.is_ascii_graphic() { v as char } else { '.' }
+            }
         } else {
-            CharRep {
-                lower: None,
-                upper: None,
-                ascii: ' '
+            CharPrintingInfo {
+                lower: '~',
+                upper: '~',
+                text:  ' '
             }
         }
     }
 }
 
-impl std::fmt::Display for CharRep {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}{}", self.upper.unwrap_or('~'), self.lower.unwrap_or('~'))
-    }
+impl CharPrintingInfo {
+    fn byte(&self)  -> String { format!("{}{} ", self.upper, self.lower) }
+    fn ascii(&self) -> String { format!("{}", self.text) }
 }
 
-
 struct ZestienView {
-    data: Vec<CharRep>,
+    data: Vec<Option<u8>>,
     /// The cursor points to a byte, not a nybble.
     cursor: usize,
     /// Are we editing the lower nybble of the byte the cursor is pointing to?
     on_lower_nybble: bool,
     scroll_row_offset: usize,
     visible_rows: usize,
-    padding: usize
 }
 
 impl ZestienView {
+    fn new() -> Self {
+        ZestienView { data: Vec::new(), cursor: 0, on_lower_nybble: false, scroll_row_offset: 0, visible_rows: 1 }
+    }
+    fn with_data(data: Vec<Option<u8>>) -> Self {
+        ZestienView { data, cursor: 0, on_lower_nybble: false, scroll_row_offset: 0, visible_rows: 16 }
+    }
+
     fn get_cursor_pos(&self)  -> (usize, usize) { (self.cursor % BYTE_WIDTH, self.cursor / BYTE_WIDTH) }
     fn move_cursor(&mut self, offset: isize)    {
         self.cursor = (self.cursor as isize + offset).clamp(0, (self.data.len() - 1) as isize) as usize;
@@ -131,17 +101,16 @@ impl ZestienView {
 
             if row_idx != c_row {
                 spanned_string.append_plain(format!(
-                        "{}: {} | {}",
+                        "{}: {}| {}",
                         format!("{:08x}", row_idx * BYTE_WIDTH),
-                        row.iter().map(|c| format!("{}", c)).collect::<Vec<_>>().join(" "),
-                        row.iter().map(|c| format!("{}", c.ascii)).collect::<Vec<_>>().join("")));
+                        row.iter().map(|c| CharPrintingInfo::from(*c).byte()  ).collect::<Vec<_>>().join(""),
+                        row.iter().map(|c| CharPrintingInfo::from(*c).ascii() ).collect::<Vec<_>>().join("")));
             } else {
                 spanned_string.append_plain(format!("{:08x}: ", row_idx * BYTE_WIDTH));
-                for c in &row[..c_col] {
-                    spanned_string.append_plain(format!("{} ", c));
-                }
+                row[..c_col].into_iter().map(|c| CharPrintingInfo::from(*c).byte()).for_each(|s| spanned_string.append_plain(s));
+
                 spanned_string.append_styled(
-                    format!("{}",  row[c_col].upper.unwrap_or('~')),
+                    CharPrintingInfo::from(row[c_col]).upper.to_string(),
                     Style {
                         effects: enum_set!(Effect::Bold),
                         color: ColorStyle::new(
@@ -151,7 +120,7 @@ impl ZestienView {
                     }
                 );
                 spanned_string.append_styled(
-                    format!("{}", row[c_col].lower.unwrap_or('~')),
+                    CharPrintingInfo::from(row[c_col]).lower.to_string(),
                     Style {
                         effects: enum_set!(Effect::Bold),
                         color: ColorStyle::new(
@@ -161,24 +130,22 @@ impl ZestienView {
                     }
                 );
                 spanned_string.append_plain(" ");
-                for c in &row[(c_col + 1)..] {
-                    spanned_string.append_plain(format!("{} ", c));
-                }
+
+                row[(c_col + 1)..].into_iter().map(|c| CharPrintingInfo::from(*c).byte()).for_each(|s| spanned_string.append_plain(s));
+
                 spanned_string.append_plain("| ");
-                for c in &row[..c_col] {
-                    spanned_string.append_plain(format!("{}", c.ascii))
-                }
+
+                row[..c_col].into_iter().map(|c| CharPrintingInfo::from(*c).ascii()).for_each(|s| spanned_string.append_plain(s));
+
                 spanned_string.append_styled(
-                    format!("{}", row[c_col].ascii),
+                    CharPrintingInfo::from(row[c_col]).ascii(),
                     Style {
                         effects: enum_set!(Effect::Bold),
                         color: ColorStyle::new(Color::Light(BaseColor::Cyan), Color::Dark(BaseColor::Blue))
                     }
                 );
-                for c in &row[(c_col + 1)..] {
-                    spanned_string.append_plain(format!("{}", c.ascii))
-                }
 
+                row[(c_col + 1)..].into_iter().map(|c| CharPrintingInfo::from(*c).ascii()).for_each(|s| spanned_string.append_plain(s));
             }
             return spanned_string;
         }).collect::<Vec<_>>();
@@ -187,11 +154,17 @@ impl ZestienView {
     }
 
     fn edit_data(&mut self, val: u8) {
-        if self.on_lower_nybble { self.data[self.cursor].lower = Some(nybble_to_hex(val)); }
-        else                    { self.data[self.cursor].upper = Some(nybble_to_hex(val)); }
+        if self.data[self.cursor].is_none() {
+            self.data[self.cursor] = Some(0);
+        }
 
-        //self.data[self.cursor] &= if self.on_lower_nybble { 0xf0 } else { 0x0f };
-        //self.data[self.cursor] |= val << if self.on_lower_nybble { 0 } else { 4 };
+        let mut original = self.data[self.cursor].unwrap();
+        original &= if self.on_lower_nybble { 0xf0 } else { 0x0f };
+        original |= val << if self.on_lower_nybble { 0 } else { 4 };
+        self.data[self.cursor] = Some(original);
+
+        //advance the cursor after typing something
+        self.nybble_move(true);
     }
 }
 
@@ -200,8 +173,8 @@ impl View for ZestienView {
         let gen = self.generate_text(self.visible_rows);
         let window = printer.windowed(
             cursive::Rect::from_corners(
-                (self.padding, self.padding),
-                (self.padding + ZestienView::ROW_LENGTH, self.padding + self.visible_rows)
+                (PADDING, PADDING),
+                (PADDING + ZestienView::ROW_LENGTH, PADDING + self.visible_rows)
             )
         );
 
@@ -211,7 +184,7 @@ impl View for ZestienView {
         }
     }
     fn required_size(&mut self, _constraint: cursive::Vec2) -> cursive::Vec2 {
-        cursive::Vec2::new(ZestienView::ROW_LENGTH + 2 * self.padding, self.visible_rows + 2 * self.padding)
+        cursive::Vec2::new(ZestienView::ROW_LENGTH + 2 * PADDING, self.visible_rows + 2 * PADDING)
     }
     fn on_event(&mut self, event: Event) -> EventResult {
         match event {
@@ -234,6 +207,17 @@ impl View for ZestienView {
             }
 
             // HEX EDITING
+
+            Event::Char('0') => {self.edit_data(0); EventResult::Ignored}
+            Event::Char('1') => {self.edit_data(1); EventResult::Ignored}
+            Event::Char('2') => {self.edit_data(2); EventResult::Ignored}
+            Event::Char('3') => {self.edit_data(3); EventResult::Ignored}
+            Event::Char('4') => {self.edit_data(4); EventResult::Ignored}
+            Event::Char('5') => {self.edit_data(5); EventResult::Ignored}
+            Event::Char('6') => {self.edit_data(6); EventResult::Ignored}
+            Event::Char('7') => {self.edit_data(7); EventResult::Ignored}
+            Event::Char('8') => {self.edit_data(8); EventResult::Ignored}
+            Event::Char('9') => {self.edit_data(9); EventResult::Ignored}
             Event::Char('a') => {self.edit_data(10); EventResult::Ignored}
             Event::Char('b') => {self.edit_data(11); EventResult::Ignored}
             Event::Char('c') => {self.edit_data(12); EventResult::Ignored}
@@ -256,19 +240,12 @@ fn main() {
     let mut buf = String::with_capacity(1 << 16);
     let _reader = BufReader::new(file).read_to_string(&mut buf);
 
-    let mut data: Vec<_> = buf.as_bytes()
-                          .into_iter()
-                          .map(|c| CharRep::from(*c))
-                          .collect();
-
-    let extra_chars = vec![CharRep::from(None); 17 - ((data.len() + 1) % 16)];
+    let mut data: Vec<_> = buf.as_bytes().into_iter().map(|e| Some(*e)).collect();
+    let extra_chars = vec![None; 17 - ((data.len() + 1) % 16)];
 
     data.extend(extra_chars);
-
-    let zestien_view = ZestienView { data, cursor: 0, scroll_row_offset: 0, visible_rows: 10, padding: 2, on_lower_nybble: true };
-
+    let zestien_view = ZestienView::with_data(data);
     let mut siv = Cursive::new();
     siv.add_layer(Panel::new(zestien_view));
-
     siv.run();
 }
