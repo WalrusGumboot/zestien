@@ -5,8 +5,13 @@ const BYTE_WIDTH: usize = 16;
 use std::{env, fs::File, io::{BufReader, Read}};
 
 extern crate cursive;
-use cursive::{views::{TextView, NamedView, PaddedView, Panel, TextContent}, utils::span::SpannedString, theme::{Style, Effect, ColorStyle, Color, BaseColor}, reexports::enumset::enum_set, event::{Event, Key}};
-use cursive::{Cursive, CursiveExt};
+use cursive::views::{NamedView, PaddedView, Panel};
+use cursive::utils::span::{SpannedString, SpannedStr};
+use cursive::theme::{Style, Effect, ColorStyle, Color, BaseColor};
+use cursive::reexports::enumset::enum_set;
+use cursive::event::{Event, Key, EventResult};
+use cursive::View;
+use cursive::{Cursive, CursiveExt, XY};
 
 fn nybble_to_hex(n: u8) -> char {
     if n < 10 {
@@ -30,7 +35,7 @@ impl From<u8> for CharRep {
         Self {
             lower: nybble_to_hex(source & 0x0f),
             upper: nybble_to_hex(source >> 4),
-            ascii: if (source > 0x40 && source < 0x5b) || (source > 0x60 && source < 0x7b) { source as char } else { '.' } //TODO: add nerd font support for newline char
+            ascii: if (source as char).is_ascii_graphic() { source as char } else { '.' } //TODO: add nerd font support for newline char
         }
     }
 }
@@ -41,88 +46,125 @@ impl std::fmt::Display for CharRep {
     }
 }
 
-#[derive(Clone, Copy)]
-struct Cursor {
-    row: usize,
-    col: usize,
-    on_lower: bool
+
+struct ZestienView {
+    data: Vec<CharRep>,
+    cursor: usize,
+    scroll_row_offset: usize,
+    visible_rows: usize,
+    padding: usize
 }
 
-impl Cursor {
-    fn new(x: usize, y: usize) -> Self {
-        Cursor {
-            row: y,
-            col: x,
-            on_lower: false
-        }
+impl ZestienView {
+    fn get_cursor_pos(&self)  -> (usize, usize)  { (self.cursor % BYTE_WIDTH, self.cursor / BYTE_WIDTH) }
+    fn cursor_on_lower(&self) -> bool            { self.cursor % 2 == 0 }
+    fn move_cursor(&mut self, offset: isize)     { self.cursor = (self.cursor as isize + offset).clamp(0, self.data.len() as isize) as usize }
+
+    const ROW_LENGTH: usize = 8 + 2 + 3 * BYTE_WIDTH + 2 + BYTE_WIDTH;
+    fn generate_text(&self, rows: usize) -> Vec<SpannedString<Style>> {
+        let (c_col, c_row) = self.get_cursor_pos();
+        let c_lower = self.cursor_on_lower();
+
+        let row_iter = self.data.chunks(BYTE_WIDTH).skip(self.scroll_row_offset).take(rows);
+
+        let all_rows = row_iter.enumerate().map(|(screen_row_idx, row)|  {
+            let row_idx = screen_row_idx + self.scroll_row_offset;
+
+            let mut spanned_string = SpannedString::new();
+
+            if row_idx != c_row {
+                spanned_string.append_plain(format!(
+                        "{}: {} | {}\n",
+                        format!("{:08x}", row_idx * BYTE_WIDTH),
+                        row.iter().map(|c| format!("{}", c)).collect::<Vec<_>>().join(" "),
+                        row.iter().map(|c| String::from(c.ascii)).collect::<Vec<_>>().join("")));
+            } else {
+                spanned_string.append_plain(format!("{:08x}: ", row_idx * BYTE_WIDTH));
+                for c in &row[..c_col] {
+                    spanned_string.append_plain(format!("{} ", c));
+                }
+                spanned_string.append_styled(
+                    format!("{}",  row[c_col].upper),
+                    Style {
+                        effects: enum_set!(Effect::Bold),
+                        color: ColorStyle::new(
+                            if !c_lower { Color::Light(BaseColor::Cyan) } else { Color::Dark(BaseColor::White) },
+                            Color::Dark(BaseColor::Blue)
+                        )
+                    }
+                );
+                spanned_string.append_styled(
+                    format!("{}", row[c_col].lower),
+                    Style {
+                        effects: enum_set!(Effect::Bold),
+                        color: ColorStyle::new(
+                            if c_lower { Color::Light(BaseColor::Cyan) } else { Color::Dark(BaseColor::White) },
+                            Color::Dark(BaseColor::Blue)
+                        )
+                    }
+                );
+                spanned_string.append_plain(" ");
+                for c in &row[(c_col + 1)..] {
+                    spanned_string.append_plain(format!("{} ", c));
+                }
+                spanned_string.append_plain("| ");
+                for c in &row[..c_col] {
+                    spanned_string.append_plain(format!("{}", c.ascii))
+                }
+                spanned_string.append_styled(
+                    format!("{}", row[c_col].ascii),
+                    Style {
+                        effects: enum_set!(Effect::Bold),
+                        color: ColorStyle::new(Color::Light(BaseColor::Cyan), Color::Dark(BaseColor::Blue))
+                    }
+                );
+                for c in &row[(c_col + 1)..] {
+                    spanned_string.append_plain(format!("{}", c.ascii))
+                }
+                spanned_string.append_plain("\n");
+
+            }
+            return spanned_string;
+        }).collect::<Vec<_>>();
+
+        return all_rows;
     }
 }
 
-fn generate_text(data: &Vec<CharRep>, cursor: &Cursor) -> SpannedString<Style> {
-    let mut spanned_string = SpannedString::new();
-    for (row_idx, row) in data.chunks(BYTE_WIDTH).enumerate() {
-        if row_idx != cursor.row {
-            spanned_string.append_plain(format!(
-                    "{}: {} | {}\n",
-                    format!("{:08x}", row_idx * BYTE_WIDTH),
-                    row.iter().map(|c| format!("{}", c)).collect::<Vec<_>>().join(" "),
-                    row.iter().map(|c| String::from(c.ascii)).collect::<Vec<_>>().join("")));
-        } else {
-            spanned_string.append_plain(format!("{:08x}: ", row_idx * BYTE_WIDTH));
-            for c in &row[..cursor.col] {
-                spanned_string.append_plain(format!("{} ", c));
-            }
+impl View for ZestienView {
+    fn draw(&self, printer: &cursive::Printer) {
+        let gen = self.generate_text(self.visible_rows);
+        let mut window = printer.windowed(cursive::Rect::from_corners((self.padding, self.padding), (self.padding + ZestienView::ROW_LENGTH, self.padding + self.visible_rows)));
 
-            spanned_string.append_styled(
-                format!("{}",  row[cursor.col].upper),
-                Style {
-                    effects: enum_set!(Effect::Bold),
-                    color: ColorStyle::new(
-                        if !cursor.on_lower { Color::Light(BaseColor::Cyan) } else { Color::Dark(BaseColor::White) },
-                        Color::Dark(BaseColor::Blue)
-                    )
-                }
-            );
-            spanned_string.append_styled(
-                format!("{}", row[cursor.col].lower),
-                Style {
-                    effects: enum_set!(Effect::Bold),
-                    color: ColorStyle::new(
-                        if cursor.on_lower { Color::Light(BaseColor::Cyan) } else { Color::Dark(BaseColor::White) },
-                        Color::Dark(BaseColor::Blue)
-                    )
-                }
-            );
-
-            spanned_string.append_plain(" ");
-
-            for c in &row[(cursor.col + 1)..] {
-                spanned_string.append_plain(format!("{} ", c));
-            }
-
-            spanned_string.append_plain("| ");
-
-            for c in &row[..cursor.col] {
-                spanned_string.append_plain(format!("{}", c.ascii))
-            }
-
-            spanned_string.append_styled(
-                format!("{}", row[cursor.col].ascii),
-                Style {
-                    effects: enum_set!(Effect::Bold),
-                    color: ColorStyle::new(Color::Light(BaseColor::Cyan), Color::Dark(BaseColor::Blue))
-                }
-            );
-
-            for c in &row[(cursor.col + 1)..] {
-                spanned_string.append_plain(format!("{}", c.ascii))
-            }
-
-            spanned_string.append_plain("\n");
+        for i in 0..self.visible_rows {
+            let current_row = &gen[i];
+            window.print_styled(XY::new(0, i), SpannedStr::new(current_row.source(), current_row.spans_raw()));
         }
     }
-
-    spanned_string
+    fn required_size(&mut self, _constraint: cursive::Vec2) -> cursive::Vec2 {
+        cursive::Vec2::new(ZestienView::ROW_LENGTH + 2 * self.padding, self.visible_rows + 2 * self.padding)
+    }
+    fn on_event(&mut self, event: Event) -> EventResult {
+        match event {
+            Event::Key(Key::Right) => {
+                self.move_cursor(1);
+                EventResult::Ignored
+            }
+            Event::Key(Key::Left) => {
+                self.move_cursor(-1);
+                EventResult::Ignored
+            }
+            Event::Key(Key::Up) => {
+                self.move_cursor(-16); // TODO: take BYTE_WIDTH into account
+                EventResult::Ignored
+            }
+            Event::Key(Key::Down) => {
+                self.move_cursor(16);
+                EventResult::Ignored
+            }
+            _ => EventResult::Ignored
+        }
+    }
 }
 
 fn main() {
@@ -137,25 +179,10 @@ fn main() {
                           .map(|c| CharRep::from(*c))
                           .collect();
 
-    let mut cursive_cursor  = Cursor::new(3, 2);
-    let cursive_content = TextContent::new(generate_text(&data, &cursive_cursor));
+    let zestien_view = ZestienView { data, cursor: 0, scroll_row_offset: 0, visible_rows: 10, padding: 2 };
 
     let mut siv = Cursive::new();
-    siv.add_layer(
-        Panel::new(
-            PaddedView::lrtb(4, 4, 2, 2,
-                NamedView::new(
-                    "zestien",
-                    TextView::new_with_content(
-                        cursive_content.clone()
-                    )
-                )
-            )
-        )
-    );
-
-    siv.add_global_callback(Event::Refresh, move |_| cursive_content.set_content(generate_text(&data, &cursive_cursor)));
-    siv.add_global_callback(Event::Key(Key::Right), move |_| cursive_cursor.col += 1 );
+    siv.add_layer(Panel::new(zestien_view));
 
     siv.run();
 }
