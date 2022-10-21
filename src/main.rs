@@ -61,14 +61,31 @@ struct ZestienView {
     on_lower_nybble: bool,
     scroll_row_offset: usize,
     visible_rows: usize,
+
+    file_path: Option<String> // if None, rendered as [New file]
+                              // TODO: make this work with Path instead
+    file: Option<File> // the actual file handle
 }
 
 impl ZestienView {
     fn new() -> Self {
-        ZestienView { data: Vec::new(), cursor: 0, on_lower_nybble: false, scroll_row_offset: 0, visible_rows: 1 }
+        ZestienView { data: Vec::new(), cursor: 0, on_lower_nybble: false, scroll_row_offset: 0, visible_rows: 1, file_path: None, file: None}
     }
     fn with_data(data: Vec<Option<u8>>) -> Self {
-        ZestienView { data, cursor: 0, on_lower_nybble: false, scroll_row_offset: 0, visible_rows: 16 }
+        ZestienView { data, cursor: 0, on_lower_nybble: false, scroll_row_offset: 0, visible_rows: 16, file_path: None, file: None }
+    }
+    fn from_file(path: String) -> Self {
+        let file = File::open(path).expect("Could not open or find the supplied file.");
+
+        let mut buf = String::new();
+        let _reader = BufReader::new(file).read_to_string(&mut buf);
+
+        let mut data: Vec<_> = buf.as_bytes().into_iter().map(|e| Some(*e)).collect();
+        let extra_chars = vec![None; 17 - ((data.len() + 1) % 16)];
+
+        data.extend(extra_chars);
+
+        ZestienView { data, cursor: 0, on_lower_nybble: false, scroll_row_offset: 0, visible_rows: (data / 16).clamp(1, 16), file_path: Some(path), file }
     }
 
     fn get_cursor_pos(&self)  -> (usize, usize) { (self.cursor % BYTE_WIDTH, self.cursor / BYTE_WIDTH) }
@@ -89,6 +106,16 @@ impl ZestienView {
         }
     }
     const ROW_LENGTH: usize = 8 + 2 + 3 * BYTE_WIDTH + 2 + BYTE_WIDTH;
+    
+    fn save_file(&mut self) { // mut because file path may be altered
+        if self.file_path.is_none() {
+            self.file_path = Some(String::from("out.bin")); // TODO: get from user input
+            self.file = Some(File::create(self.file_path.unwrap));
+        }
+
+        self.file.write_all(self.data.iter().filter_map(|e| *e).collect());
+    }
+
     fn generate_text(&self, rows: usize) -> Vec<SpannedString<Style>> {
         let (c_col, c_row) = self.get_cursor_pos();
 
@@ -235,15 +262,6 @@ impl View for ZestienView {
 
 fn main() {
     let maybe_path = &env::args().collect::<Vec<String>>()[1];
-    let file = File::open(maybe_path).expect("Could not open or find the supplied file.");
-
-    let mut buf = String::with_capacity(1 << 16);
-    let _reader = BufReader::new(file).read_to_string(&mut buf);
-
-    let mut data: Vec<_> = buf.as_bytes().into_iter().map(|e| Some(*e)).collect();
-    let extra_chars = vec![None; 17 - ((data.len() + 1) % 16)];
-
-    data.extend(extra_chars);
     let zestien_view = ZestienView::with_data(data);
     let mut siv = Cursive::new();
     siv.add_layer(Panel::new(zestien_view));
